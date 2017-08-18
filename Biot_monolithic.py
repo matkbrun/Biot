@@ -1,7 +1,6 @@
 """
 
-FENICS script for solving the Biot system using iterative fixed stress splitting method w
-with mixed elements
+FENICS script for solving the Biot system using mixed elements with monolithic solver
 
 Author: Mats K. Brun
 
