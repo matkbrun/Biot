@@ -17,8 +17,8 @@ import sympy as sy
 
 dim = 2                                                  # spatial dimension
 eps = 10.0E-6                                            # error tolerance
-T_final = 0.5                                            # final time
-number_of_steps = 5                                      # number of steps
+T_final = 1.0                                            # final time
+number_of_steps = 10                                     # number of steps
 dt = T_final / number_of_steps                           # time step
 alpha = 1.0                                              # Biot's coeff
 E = 1.0                                                  # bulk modulus
@@ -106,15 +106,15 @@ f2 = \t %r
 
 # <editor-fold desc="Mesh and function spaces">
 # generate unit square mesh
-mesh = UnitSquareMesh(32, 32)
+mesh = UnitSquareMesh(128, 128)
 mesh_size = mesh.hmax()
 
 # define function spaces
-U = VectorFunctionSpace(mesh, 'P', 1)                   # space for displacement
+U_elem = VectorElement('P', mesh.ufl_cell(), 1)         # space for displacement
 P_elem = FiniteElement('DG', mesh.ufl_cell(), 0)        # element for pressure
 W_elem = FiniteElement('RT', mesh.ufl_cell(), 1)        # element for flux
-WP_elem = W_elem * P_elem                               # mixed element for flux and pressure
-WP = FunctionSpace(mesh, WP_elem)                       # mixed space for flux and pressure
+elem = MixedElement([W_elem, P_elem, U_elem])           # mixed element
+WPU = FunctionSpace(mesh, elem)                         # mixed space
 
 # exact solutions and RHS
 w_ex = Expression((w1_code, w2_code), degree=5, t=0)
@@ -131,24 +131,21 @@ def boundary(x, on_boundary):
     return on_boundary
 
 # Dirichlet BC for displacement and pressure
-bc_u = DirichletBC(U, u_ex, boundary)
-bc_wp = DirichletBC(WP.sub(1), p_ex, boundary)
+bc_wp = DirichletBC(WPU.sub(1), p_ex, boundary)
+bc_u = DirichletBC(WPU.sub(2), u_ex, boundary)
+bcs = [bc_wp, bc_u]
 
 # trial and test functions
-u = TrialFunction(U)
-v = TestFunction(U)
-w, p = TrialFunctions(WP)
-z, q = TestFunctions(WP)
+z, q, v = TestFunctions(WPU)
+w, p, u = TrialFunctions(WPU)
 
 
 # initial conditions (homogenous) and previous time-step/iteration
-u_n = Function(U)
-u_ = Function(U)
-wp_n = Function(WP)
-wp_ = Function(WP)
+#wpu = Function(WPU)
+wpu_n = Function(WPU)
 
-w_n, p_n = split(wp_n)
-w_, p_ = split(wp_)
+#w, p, u = split(wpu)
+w_n, p_n, u_n = split(wpu_n)
 
 # </editor-fold>
 
@@ -169,27 +166,24 @@ mu = Constant(mu)
 betaFS = Constant(betaFS)
 rho_f = Constant(1.0)       # fluid density
 
-# define var problem for step 1 (pressure and flux)
-a1 = (1/M + betaFS)*p*q*dx + dt*div(w)*q*dx + 1/K*dot(w, z)*dx - p*div(z)*dx
+# define var problem
+#F = 1/M*p*q*dx + alpha*div(u)*q*dx + dt*div(w)*q*dx + 1/K*dot(w, z)*dx - p*div(z)*dx \
+#     - dt*Sf*q*dx - 1/M*p_n*q*dx - alpha*div(u_n)*q*dx - rho_f*dot(g, z)*dx \
+#     + 2*mu*inner(epsilon(u), epsilon(v))*dx + lambd*div(u)*div(v)*dx - alpha*p*div(v)*dx - dot(f, v)*dx
 
-L1 = dt*Sf*q*dx + 1/M*p_n*q*dx + alpha*div(u_n)*q*dx \
-     + betaFS*p_*q*dx - alpha*div(u_)*q*dx + rho_f*dot(g, z)*dx
+a = 1/M*p*q*dx + alpha*div(u)*q*dx + dt*div(w)*q*dx + 1/K*dot(w, z)*dx - p*div(z)*dx \
+    + 2*mu*inner(epsilon(u), epsilon(v))*dx + lambd*div(u)*div(v)*dx - alpha*p*div(v)*dx
 
-# define var problem for step 2 (displacement)
-a2 = 2*mu*inner(epsilon(u), epsilon(v))*dx + lambd*div(u)*div(v)*dx
+L = dt*Sf*q*dx + 1/M*p_n*q*dx + alpha*div(u_n)*q*dx + rho_f*dot(g, z)*dx + dot(f, v)*dx
 
-L2 = dot(f, v)*dx + alpha*p_*div(v)*dx
-
-# Define solutions
-u = Function(U)
-wp = Function(WP)
+wpu = Function(WPU)
 
 # </editor-fold>
 
 # Create VTK file for saving solution, .pvd or .xdmf
-vtkfile_w = File('Biot/flux.pvd')
-vtkfile_p = File('Biot/pressure.pvd')
-vtkfile_u = File('Biot/displacement.pvd')
+vtkfile_w = File('Biot_monolithic/flux.pvd')
+vtkfile_p = File('Biot_monolithic/pressure.pvd')
+vtkfile_u = File('Biot_monolithic/displacement.pvd')
 
 # initialize time
 t = 0.0
@@ -204,31 +198,24 @@ for i in range(number_of_steps):
     Sf.t = t
     f.t = t
 
-    # do iterations
-    for j in range(5):
-        # step 1
-        solve(a1 == L1, wp, bc_wp)
-        _w_, _p_ = wp.split()
-        wp_.assign(wp)   # update previous iteration
-
-        # step 2
-        solve(a2 == L2, u, bc_u)
-        u_.assign(u)     # update previous iteration
+    # solve linear system
+    #solve(F == 0, wpu, bcs)
+    solve(a == L, wpu, bcs)
+    _w_, _p_, _u_ = wpu.split()
 
     # update previous time step
-    wp_n.assign(wp)
-    u_n.assign(u)
+    wpu_n.assign(wpu)
 
     # <editor-fold desc="Compute and print errors">
     # Compute errors in L2 norm
     flux_error_L2 = errornorm(w_ex, _w_, 'L2')
     pressure_error_L2 = errornorm(p_ex, _p_, 'L2')
-    displacement_error_L2 = errornorm(u_ex, u, 'L2')
+    displacement_error_L2 = errornorm(u_ex, _u_, 'L2')
 
     # interpolate exact solutions at current step
-    w_e = interpolate(w_ex, WP.sub(0).collapse())
-    p_e = interpolate(p_ex, WP.sub(1).collapse())
-    u_e = interpolate(u_ex, U)
+    w_e = interpolate(w_ex, WPU.sub(0).collapse())
+    p_e = interpolate(p_ex, WPU.sub(1).collapse())
+    u_e = interpolate(u_ex, WPU.sub(2).collapse())
 
     # Compute maximum error at vertices
     vertex_values_w_e = w_e.compute_vertex_values(mesh)
@@ -236,7 +223,7 @@ for i in range(number_of_steps):
     flux_error_max = np.max(np.abs(vertex_values_w_e - vertex_values_w))
 
     vertex_values_u_e = u_e.compute_vertex_values(mesh)
-    vertex_values_u = u.compute_vertex_values(mesh)
+    vertex_values_u = _u_.compute_vertex_values(mesh)
     displacement_error_max = np.max(np.abs(vertex_values_u_e - vertex_values_u))
 
     vertex_values_p_e = p_e.compute_vertex_values(mesh)
@@ -257,7 +244,7 @@ for i in range(number_of_steps):
 
     # save to file
     vtkfile_w << _w_, t
-    vtkfile_u << u, t
+    vtkfile_u << _u_, t
     vtkfile_p << _p_, t
 
 # print value of parameters
