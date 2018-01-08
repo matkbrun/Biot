@@ -20,8 +20,8 @@ import sympy as sy
 
 dim = 2                                                  # spatial dimension
 eps = 10.0E-6                                            # error tolerance
-T_final = 0.5                                            # final time
-number_of_steps = 5                                      # number of steps
+T_final = 1.0                                            # final time
+number_of_steps = 10                                     # number of steps
 dt = T_final / number_of_steps                           # time step
 alpha = 1.0                                              # Biot's coeff
 E = 1.0                                                  # bulk modulus
@@ -109,7 +109,7 @@ f2 = \t %r
 
 # <editor-fold desc="Mesh and function spaces">
 # generate unit square mesh
-mesh = UnitSquareMesh(32, 32)
+mesh = UnitSquareMesh(64, 64)
 mesh_size = mesh.hmax()
 
 # define function spaces
@@ -195,20 +195,20 @@ vtkfile_p = File('Biot_FSSM/pressure.pvd')
 vtkfile_u = File('Biot_FSSM/displacement.pvd')
 
 # initialize time
-t = 0.0
+time = 0.0
 
 # start computation
 for i in range(number_of_steps):
     # update time
-    t += float(dt)
-    u_ex.t = t
-    w_ex.t = t
-    p_ex.t = t
-    Sf.t = t
-    f.t = t
+    time += float(dt)
+    u_ex.t = time
+    w_ex.t = time
+    p_ex.t = time
+    Sf.t = time
+    f.t = time
 
     # do iterations
-    for j in range(5):
+    for j in range(10):
         # step 1
         solve(a1 == L1, wp, bc_wp)
         _w_, _p_ = wp.split()
@@ -259,9 +259,9 @@ for i in range(number_of_steps):
     # </editor-fold>
 
     # save to file
-    vtkfile_w << _w_, t
-    vtkfile_u << u, t
-    vtkfile_p << _p_, t
+    vtkfile_w << _w_, time
+    vtkfile_u << u, time
+    vtkfile_p << _p_, time
 
 # print value of parameters
 print """ Parameters: \n
@@ -269,7 +269,7 @@ print """ Parameters: \n
 \t final time: \t %r
 \t lambda: \t %r
 \t mu: \t \t %r
-\t betaFS: \t %r \n """ % (float(dt), float(t), float(lambd), float(mu), float(betaFS))
+\t betaFS: \t %r \n """ % (float(dt), float(time), float(lambd), float(mu), float(betaFS))
 
 # print mesh size
 print """ Mesh size: \n

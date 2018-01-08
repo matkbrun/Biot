@@ -105,7 +105,7 @@ f2 = \t %r
 
 # <editor-fold desc="Mesh and function spaces">
 # generate unit square mesh
-mesh = UnitSquareMesh(128, 128)
+mesh = UnitSquareMesh(8, 8)
 mesh_size = mesh.hmax()
 
 # define function spaces
